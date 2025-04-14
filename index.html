@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>Картографическое приложение</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,100..900;1,100..900&display=swap');
+        body {
+            font-family: 'Montserrat', sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #f4f4f4;
+        }
+
+        button {
+            background-color: #5f4dff;
+            color: #ededed;
+            border: none;
+            padding: 7px 15px;
+            cursor: pointer;
+            font-size: 16px;
+            border-radius: 5px;
+        }
+
+        button:hover {
+            background-color: #4e3cdb;
+        }
+
+        select {
+            padding: 5px;
+            font-size: 16px;
+            border-radius: 5px;
+            border: 1px solid #ccc;
+        }
+
+        input[type="text"] {
+            padding: 5px;
+            font-size: 16px;
+            border-radius: 5px;
+            border: 1px solid #ccc;
+            width: 100px;
+        }
+
+        .mapContainer {
+            width: 100%;
+            height: 500px;
+            display: none;
+        }
+
+        .controls {
+            margin: 20px 0 20px 10px;
+        }
+
+        .pointInputs {
+            margin-bottom: 10px;
+        }
+
+        label {
+            margin-right: 10px;
+        }
+
+        input {
+            margin-right: 5px;
+        }
+    </style>
+</head>
+<body>
+<div class="controls">
+    <label for="mapType">Выберите карту:</label>
+    <select id="mapType">
+        <option value="osm">OpenStreetMap</option>
+        <option value="yandex">Яндекс.Карты</option>
+    </select>
+    <label for="citySelect">Выберите город:</label>
+    <select id="citySelect">
+    </select>
+    <button id="initMap">Инициализировать карту</button>
+</div>
+
+<!-- Панель управления для точек и линии -->
+<div class="controls">
+    <div class="pointInputs">
+        <label>Точка 1:</label>
+        <input type="text" id="lat1" placeholder="Широта">
+        <input type="text" id="lng1" placeholder="Долгота">
+    </div>
+
+    <div class="pointInputs">
+        <label>Точка 2:</label>
+        <input type="text" id="lat2" placeholder="Широта">
+        <input type="text" id="lng2" placeholder="Долгота">
+    </div>
+
+    <button id="updateMarkers">Обновить маркеры</button>
+    <button id="drawLine">Построить линию</button>
+    <button id="generatePoints">Сгенерировать случайные точки</button>
+</div>
+
+<div id="osmMap" class="mapContainer"></div>
+<div id="yandexMap" class="mapContainer"></div>
+
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+
+<script>
+    let currentMapType = null;
+
+    let osmMapInstance = null;
+    let osmMarker1 = null, osmMarker2 = null, osmPolyline = null;
+
+    let yandexMapInstance = null;
+    let yandexMarker1 = null, yandexMarker2 = null, yandexPolyline = null;
+
+    const cityData = {
+        moscow: {
+            name: "Москва",
+            minLat: 55.5,
+            maxLat: 55.95,
+            minLng: 37.29,
+            maxLng: 38.0,
+            center: [55.7558, 37.6173],
+            zoom: 10
+        },
+        spb: {
+            name: "Санкт-Петербург",
+            minLat: 59.75,
+            maxLat: 60.15,
+            minLng: 29.65,
+            maxLng: 30.65,
+            center: [59.9311, 30.3609],
+            zoom: 10
+        },
+        novosibirsk: {
+            name: "Новосибирск",
+            minLat: 54.9,
+            maxLat: 55.15,
+            minLng: 82.55,
+            maxLng: 83.25,
+            center: [55.0381, 82.9231],
+            zoom: 10
+        },
+        yekaterinburg: {
+            name: "Екатеринбург",
+            minLat: 56.7,
+            maxLat: 56.95,
+            minLng: 60.2,
+            maxLng: 60.9,
+            center: [56.8381, 60.5975],
+            zoom: 10
+        }
+    };
+
+    function getRandomCoordinate(min, max) {
+        return Math.random() * (max - min) + min;
+    }
+
+    function validateCoordinate(lat, lng, city) {
+        return lat >= city.minLat && lat <= city.maxLat && lng >= city.minLng && lng <= city.maxLng;
+    }
+
+    function showMapContainer(type) {
+        if (type === "osm") {
+            document.getElementById("osmMap").style.display = "block";
+            document.getElementById("yandexMap").style.display = "none";
+        } else if (type === "yandex") {
+            document.getElementById("osmMap").style.display = "none";
+            document.getElementById("yandexMap").style.display = "block";
+        }
+    }
+
+    function initOSM(city) {
+        if (!osmMapInstance) {
+            osmMapInstance = L.map('osmMap').setView(city.center, city.zoom);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '&copy; OpenStreetMap contributors'
+            }).addTo(osmMapInstance);
+        }
+
+        setTimeout(() => {
+            osmMapInstance.invalidateSize();
+        }, 100);
+
+        showMapContainer("osm");
+    }
+
+    function initYandex(city) {
+        if (!yandexMapInstance) {
+            if (!document.getElementById('ymaps-script')) {
+                let script = document.createElement('script');
+                script.id = 'ymaps-script';
+                script.src = "https://api-maps.yandex.ru/2.1/?apikey=ВАШ_API_КЛЮЧ&lang=ru_RU";
+                document.head.appendChild(script);
+                script.onload = () => {
+                    createYandexMap(city);
+                };
+            } else {
+                createYandexMap(city);
+            }
+        } else {
+            showMapContainer("yandex");
+        }
+    }
+
+    function createYandexMap(city) {
+        ymaps.ready(function () {
+            if (!yandexMapInstance) {
+                yandexMapInstance = new ymaps.Map("yandexMap", {
+                    center: city.center,
+                    zoom: city.zoom,
+                    controls: ['zoomControl', 'fullscreenControl']
+                });
+            }
+            showMapContainer("yandex");
+        });
+    }
+
+    document.getElementById('initMap').addEventListener('click', function () {
+        const mapType = document.getElementById('mapType').value;
+        currentMapType = mapType;
+        const cityKey = document.getElementById('citySelect').value;
+        const city = cityData[cityKey];
+
+        if (mapType === "osm") {
+            initOSM(city);
+        } else if (mapType === "yandex") {
+            initYandex(city);
+        }
+    });
+
+    function updateMapMarkers(lat1, lng1, lat2, lng2) {
+        if (osmPolyline) {
+            osmMapInstance.removeLayer(osmPolyline);
+        }
+
+        if (yandexPolyline) {
+            yandexMapInstance.geoObjects.remove(yandexPolyline);
+        }
+
+        const cityKey = document.getElementById('citySelect').value;
+        const city = cityData[cityKey];
+
+        if (!validateCoordinate(lat1, lng1, city) || !validateCoordinate(lat2, lng2, city)) {
+            alert("Введённые координаты вне границ выбранного города!");
+            return;
+        }
+
+        if (currentMapType === "osm") {
+            if (osmMarker1) {
+                osmMarker1.setLatLng([lat1, lng1]);
+            } else {
+                osmMarker1 = L.marker([lat1, lng1]).addTo(osmMapInstance);
+            }
+            if (osmMarker2) {
+                osmMarker2.setLatLng([lat2, lng2]);
+            } else {
+                osmMarker2 = L.marker([lat2, lng2]).addTo(osmMapInstance);
+            }
+        } else if (currentMapType === "yandex") {
+            ymaps.ready(function () {
+                if (yandexMarker1) {
+                    yandexMarker1.geometry.setCoordinates([lat1, lng1]);
+                } else {
+                    yandexMarker1 = new ymaps.Placemark([lat1, lng1], {hintContent: "Точка 1"});
+                    yandexMapInstance.geoObjects.add(yandexMarker1);
+                }
+                if (yandexMarker2) {
+                    yandexMarker2.geometry.setCoordinates([lat2, lng2]);
+                } else {
+                    yandexMarker2 = new ymaps.Placemark([lat2, lng2], {hintContent: "Точка 2"});
+                    yandexMapInstance.geoObjects.add(yandexMarker2);
+                }
+            });
+        }
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+        const citySelect = document.getElementById('citySelect');
+        for (const cityKey in cityData) {
+            if (cityData.hasOwnProperty(cityKey)) {
+                const option = document.createElement('option');
+                option.value = cityKey;
+                option.textContent = cityData[cityKey].name;
+                citySelect.appendChild(option);
+            }
+        }
+    });
+
+    document.getElementById('citySelect').addEventListener('change', (e) => {
+        const cityKey = e.target.value;
+        const city = cityData[cityKey];
+
+        document.getElementById('lat1').value = '';
+        document.getElementById('lng1').value = '';
+        document.getElementById('lat2').value = '';
+        document.getElementById('lng2').value = '';
+
+        if (currentMapType === "osm" && osmMapInstance) {
+            if (osmMarker1) {
+                osmMapInstance.removeLayer(osmMarker1);
+                osmMarker1 = null;
+            }
+            if (osmMarker2) {
+                osmMapInstance.removeLayer(osmMarker2);
+                osmMarker2 = null;
+            }
+
+            osmMapInstance.setView(city.center, city.zoom);
+        } else if (currentMapType === "yandex" && yandexMapInstance) {
+            if (yandexMarker1) {
+                yandexMapInstance.geoObjects.remove(yandexMarker1);
+                yandexMarker1 = null;
+            }
+
+            if (yandexMarker2) {
+                yandexMapInstance.geoObjects.remove(yandexMarker2);
+                yandexMarker2 = null;
+            }
+
+            yandexMapInstance.setCenter(city.center, city.zoom);
+        }
+    });
+
+    document.getElementById('generatePoints').addEventListener('click', function () {
+        const cityKey = document.getElementById('citySelect').value;
+        const city = cityData[cityKey];
+        const rlat1 = getRandomCoordinate(city.minLat, city.maxLat);
+        const rlng1 = getRandomCoordinate(city.minLng, city.maxLng);
+        const rlat2 = getRandomCoordinate(city.minLat, city.maxLat);
+        const rlng2 = getRandomCoordinate(city.minLng, city.maxLng);
+
+        document.getElementById('lat1').value = rlat1.toFixed(6);
+        document.getElementById('lng1').value = rlng1.toFixed(6);
+        document.getElementById('lat2').value = rlat2.toFixed(6);
+        document.getElementById('lng2').value = rlng2.toFixed(6);
+
+        updateMapMarkers(rlat1, rlng1, rlat2, rlng2);
+    });
+
+    document.getElementById('updateMarkers').addEventListener('click', function () {
+        const lat1 = parseFloat(document.getElementById('lat1').value);
+        const lng1 = parseFloat(document.getElementById('lng1').value);
+        const lat2 = parseFloat(document.getElementById('lat2').value);
+        const lng2 = parseFloat(document.getElementById('lng2').value);
+
+        if (isNaN(lat1) || isNaN(lng1) || isNaN(lat2) || isNaN(lng2)) {
+            alert("Пожалуйста, введите корректные координаты");
+            return;
+        }
+        updateMapMarkers(lat1, lng1, lat2, lng2);
+    });
+
+    document.getElementById('drawLine').addEventListener('click', function () {
+        const lat1 = parseFloat(document.getElementById('lat1').value);
+        const lng1 = parseFloat(document.getElementById('lng1').value);
+        const lat2 = parseFloat(document.getElementById('lat2').value);
+        const lng2 = parseFloat(document.getElementById('lng2').value);
+
+        if (isNaN(lat1) || isNaN(lng1) || isNaN(lat2) || isNaN(lng2)) {
+            alert("Пожалуйста, введите корректные координаты");
+            return;
+        }
+
+        if (currentMapType === "osm") {
+            if (osmPolyline) {
+                osmMapInstance.removeLayer(osmPolyline);
+            }
+            osmPolyline = L.polyline([[lat1, lng1], [lat2, lng2]], {color: 'blue'}).addTo(osmMapInstance);
+            osmMapInstance.fitBounds(osmPolyline.getBounds());
+        } else if (currentMapType === "yandex") {
+            ymaps.ready(function () {
+                if (yandexPolyline) {
+                    yandexMapInstance.geoObjects.remove(yandexPolyline);
+                }
+                yandexPolyline = new ymaps.Polyline([[lat1, lng1], [lat2, lng2]], {}, {
+                    strokeColor: "#0000FF",
+                    strokeWidth: 4,
+                    strokeOpacity: 0.5
+                });
+                yandexMapInstance.geoObjects.add(yandexPolyline);
+                yandexMapInstance.setBounds(yandexPolyline.geometry.getBounds(), {checkZoomRange: true});
+            });
+        }
+    });
+</script>
+</body>
+</html>
